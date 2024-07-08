@@ -119,15 +119,11 @@ class GUI:
             self.set_acknowledge(True)
 
     def process_colors(self, image):
-        if image.ndim != 3 or image.shape[2] != 1:
-            print(f"The input image must be a 3D array with a single layer (height, width, 1).")
-            return None
+        colored_image = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
 
-        # Grayscale image without last dim
-        grayscale_image = image[:, :, 0]
-
-        # Color exit image
-        colored_image = np.zeros((grayscale_image.shape[0], grayscale_image.shape[1], 3), dtype=np.uint8)
+        # Grayscale for values < 128
+        mask = image < 128
+        colored_image[mask] = image[mask][:, None] * 2
 
         # Color lookup table
         color_table = {
@@ -140,19 +136,16 @@ class GUI:
             134: violet
         }
 
-        # Grayscale for values < 128
-        gray_mask = grayscale_image < 128
-        colored_image[gray_mask] = grayscale_image[gray_mask][:, None] * 2
-
         for value, color in color_table.items():
-            color_mask = (grayscale_image == value)
-            colored_image[color_mask] = color
+            mask = image == value
+            colored_image[mask] = color
 
         return colored_image
 
 
     # load the image data
     def showNumpy(self, image):
+        print("Updating image...")
         self.shared_image.add(self.process_colors(image))
 
     def getMap(self, url):
