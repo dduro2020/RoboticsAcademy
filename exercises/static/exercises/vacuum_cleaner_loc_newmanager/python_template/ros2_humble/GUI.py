@@ -2,6 +2,7 @@ import json
 import cv2
 import math
 import base64
+import re
 import threading
 import time
 from datetime import datetime
@@ -12,6 +13,9 @@ import matplotlib.pyplot as plt
 from HAL import getPose3d
 from console import start_console
 from map import Map
+from shared.image import SharedImage
+
+from PIL import Image
 
 # Graphical User Interface Class
 
@@ -51,6 +55,9 @@ class GUI:
         self.client_thread = threading.Thread(target=self.run_websocket)
         self.client_thread.start()
 
+        self.shared_image = SharedImage("guiimage")
+
+
     # Function to get value of Acknowledge
     def get_acknowledge(self):
         with self.ack_lock:
@@ -62,6 +69,20 @@ class GUI:
     def set_acknowledge(self, value):
         with self.ack_lock:
             self.ack = value
+
+    def payloadImage(self):
+
+        image = self.shared_image.get()
+        payload = {'image': '', 'shape': ''}
+
+        shape = image.shape
+        frame = cv2.imencode('.PNG', image)[1]
+        encoded_image = base64.b64encode(frame)
+
+        payload['image'] = encoded_image.decode('utf-8')
+        payload['shape'] = shape
+
+        return payload
 
     # Update the gui
     def update_gui(self):
@@ -80,6 +101,8 @@ class GUI:
         #nav_mat[3, 3] = 2
         #nav_mat[5,9] = 3
         #nav_message = str(nav_mat.tolist())
+        payload = self.payloadImage()
+        self.payload["image"] = json.dumps(payload)
 
         message = json.dumps(self.payload)
         if self.client:
@@ -96,11 +119,15 @@ class GUI:
             self.set_acknowledge(True)
 
     def process_colors(self, image):
-        colored_image = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
+        if image.ndim != 3 or image.shape[2] != 1:
+            print(f"The input image must be a 3D array with a single layer (height, width, 1).")
+            return None
 
-        # Grayscale for values < 128
-        mask = image < 128
-        colored_image[mask] = image[mask][:, None] * 2
+        # Grayscale image without last dim
+        grayscale_image = image[:, :, 0]
+
+        # Color exit image
+        colored_image = np.zeros((grayscale_image.shape[0], grayscale_image.shape[1], 3), dtype=np.uint8)
 
         # Color lookup table
         color_table = {
@@ -113,18 +140,31 @@ class GUI:
             134: violet
         }
 
+        # Grayscale for values < 128
+        gray_mask = grayscale_image < 128
+        colored_image[gray_mask] = grayscale_image[gray_mask][:, None] * 2
+
         for value, color in color_table.items():
-            mask = image == value
-            colored_image[mask] = color
+            color_mask = (grayscale_image == value)
+            colored_image[color_mask] = color
 
         return colored_image
+
 
     # load the image data
     def showNumpy(self, image):
         self.shared_image.add(self.process_colors(image))
 
-    def getMap(self, url):        
-        return plt.imread(url)
+    def getMap(self, url):
+        try:
+        # Open with PIL
+            with Image.open(url) as img:
+                img = img.convert("RGB")
+                img_array = np.array(img)
+            return img_array
+        except Exception as e:
+            print(f"Error reading image from {url}: {e}")
+            return None
 
     def run_websocket(self):
         while True:
